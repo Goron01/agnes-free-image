@@ -1,0 +1,12 @@
+interface:
+  display_name: "Agnes Free Image"
+  short_description: "Free Agnes image API helper (text-to-image / image-to-image)"
+  default_prompt: "Use agnes-free-image to generate images with Agnes Image 2.1 Flash. Default output is agent-friendly structured STATUS/PATH/URL on stdout. Errors also go to stdout (STATUS: error) so AI agents can parse them reliably."
+
+# v2.2.0 notes (2026-06-10):
+# - Agent mode 默认输出，stdout 结构化字段（STATUS/PATH/URL/PROMPT/SIZE）
+# - 错误也走 stdout（agent 一定能 parse 到）
+# - I2I 必须用公网 URL（Agnes 自带 CDN URL 可直链复用，本地图走 catbox.moe）
+# - 多 Key 轮换：AGNES_API_KEY=sk-a,sk-b,sk-c 逗号分隔
+# - 配额与 agnes-free-video 共享 key pool
+# - 见 SKILL.md / Changelog.md 获取完整信息
