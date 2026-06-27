@@ -2,6 +2,71 @@
 
 > 完整版本变更历史。SKILL.md 只列最近变更摘要，详细见本文档。
 
+## v2.2.1 (2026-06-27) — 全面功能测试 + size 规范化修复 + catbox 网络坑文档化
+
+**性质**：1 个 P0 bug 修复 + 文档化 catbox 网络坑 + 测试覆盖。无破坏性变更，向后兼容 v2.2.0。
+
+### P0 修复：size 规范化（实测发现）
+
+**Bug 描述**：
+- `validate_size()` 内部把 `1024X768` 和 `1024×768` 规范化通过校验（v2.2.0 加的用户友好）
+- 但 `build_payload()` 用 `args.size`（原始未规范化值）发到 API
+- 结果：脚本认为合法，**API 拒绝并返回**：
+  - `1024X768` → `422 BadRequestError`
+  - `1024×768` → `invalid_request`（"please use 'x' instead of the multiplication sign '×'"）
+- 这是脚本和 API 的 silent mismatch，agent 调了会拿到 422 不知道为什么
+
+**修复**（`scripts/agnes_image.py`）：
+- `validate_size()` 现在 **返回规范化后的合法值**（`str`）而不是 `None`
+- `build_payload()` 用规范化值发 payload
+- `_cmd_generate_impl()` agent 输出用规范化值（`SIZE:` 字段）
+- 验证：
+  - 输入 `1024X768` → payload `"size": "1024x768"` → API 200 OK ✅
+  - 输入 `1024×768` → payload `"size": "1024x768"` → API 200 OK ✅
+
+### P1 文档化：catbox.moe 网络坑（实测发现）
+
+**坑 1**：主人环境下 catbox.moe 裸连 30 秒超时
+- 必须走代理：`HTTP_PROXY=http://127.0.0.1:7897 HTTPS_PROXY=http://127.0.0.1:7897`
+- 走代理后 1 秒成功
+
+**坑 2**（更隐蔽）：即使本地能下载 catbox 文件，Agnes 服务器侧访问 catbox 也可能失败
+- 实测：`https://files.catbox.moe/g7ksel.png` → `400 invalid input image`
+- 这是网络可达性问题，不是 skill bug，但 agent 必须知道
+
+**文档更新**（`SKILL.md`）：
+- §4 加 "⚠️ v2.2.1 catbox.moe 网络坑（实测）" 子节
+- 常见错误表加 2 行：
+  - `400 invalid input image` → 优先用链式 I2I（Agnes 自产图）；本地图走 catbox 且需要走代理
+  - catbox 上传 30s 超时 → 加 `HTTP_PROXY=http://127.0.0.1:7897 HTTPS_PROXY=http://127.0.0.1:7897`
+- frontmatter description 加 catbox 代理提示
+
+### P1 单元测试补 2 个
+
+- `TestBuildPayload::test_t2i_uppercase_x_normalized`：验证 build_payload 把 `1024X768` 规范化成 `1024x768`
+- `TestBuildPayload::test_t2i_chinese_x_normalized`：验证 build_payload 把 `1024×768` 规范化成 `1024x768`
+- 已有 `TestValidateSize::test_standard_format/uppercase_x/chinese_x` 升级为断言返回值（之前只检查不抛）
+
+### 全面功能测试（v2.2.1 实测）
+
+| 功能 | 官方文档 | 实测结果 |
+|------|---------|---------|
+| T2I + URL 输出 | 示例 1 | ✅ STATUS: ok，下载 1.6MB PNG |
+| T2I + Base64 输出（顶层 `return_base64:true`） | 示例 2 | ⚠️ **API 忽略此参数**，仍返回 URL（**官方文档描述有误**） |
+| T2I + Base64 输出（`extra_body.response_format:"b64_json"`） | （未明确） | ✅ 返回 `b64_json` 字段 |
+| I2I + URL 输入 + URL 输出 | 示例 3 | ✅ STATUS: ok，链式 I2I 工作流验证通过 |
+| I2I + URL 输入 + Base64 输出 | 示例 4 | ✅ 返回 `b64_json` 字段 |
+| I2I + Data URI Base64 输入 | 示例 5 | ✅ STATUS: ok（2MB payload 也能处理） |
+| Dry-run 模式 | （推荐） | ✅ 输出请求体 JSON，不发 API |
+| 多 Key 轮换 | （SKILL.md 承诺） | ✅ `sk-bad-1,sk-valid` 验证：第 1 个 401 → 切第 2 个 → 成功 |
+| 大写 X / 中文 × | （SKILL.md 承诺） | ✅ v2.2.1 修复后真正可用 |
+
+### 备份
+
+`.输出/skill-backups/agnes-free-image-v2.2.0-pre_v2.2.1-20260627_xxxx/`
+
+---
+
 ## v2.2.0 (2026-06-10) — Agent 视角深度审查
 
 **性质**：11 项 P0/P1/P2 修复 + 独立 Changelog。无破坏性变更，向后兼容 v2.1.x。

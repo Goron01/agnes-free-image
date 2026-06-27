@@ -107,18 +107,22 @@ class TestIsQuotaError:
 # ===========================================================================
 
 class TestValidateSize:
-    """v2.2.0 改进：支持大写 X、中文 ×、None、空字符串"""
+    """v2.2.0 改进：支持大写 X、中文 ×、None、空字符串
+
+    v2.2.1 改进：函数现在返回规范化后的 size 字符串（保证 build_payload 发的就是 API 接受的格式）。
+    之前 validate_size 只检查通过，但 build_payload 用原始 args.size，导致 1024X768 / 1024×768 被 API 拒绝。
+    """
 
     def test_standard_format(self):
-        validate_size("1024x768")  # 不抛
+        assert validate_size("1024x768") == "1024x768"
 
     def test_uppercase_x(self):
-        """v2.2.0 起支持 1024X768（用户友好）"""
-        validate_size("1024X768")  # 不抛
+        """v2.2.0 起支持 1024X768（用户友好），v2.2.1 起返回小写 x 形式"""
+        assert validate_size("1024X768") == "1024x768"
 
     def test_chinese_x(self):
-        """v2.2.0 起支持 1024×768（中文乘号）"""
-        validate_size("1024×768")  # 不抛
+        """v2.2.0 起支持 1024×768（中文乘号），v2.2.1 起返回小写 x 形式"""
+        assert validate_size("1024×768") == "1024x768"
 
     def test_square(self):
         validate_size("1024x1024")  # 不抛
@@ -196,6 +200,18 @@ class TestBuildPayload:
         assert payload["prompt"] == "test prompt"
         assert payload["size"] == "1024x768"
         assert "extra_body" not in payload
+
+    def test_t2i_uppercase_x_normalized(self):
+        """v2.2.1 修复：1024X768 进 build_payload 后必须输出 1024x768（API 只接受小写 x）"""
+        ns = argparse.Namespace(prompt="test", size="1024X768", image_url=None)
+        payload = build_payload(ns)
+        assert payload["size"] == "1024x768", f"expected lowercase x, got {payload['size']!r}"
+
+    def test_t2i_chinese_x_normalized(self):
+        """v2.2.1 修复：1024×768 进 build_payload 后必须输出 1024x768"""
+        ns = argparse.Namespace(prompt="test", size="1024×768", image_url=None)
+        payload = build_payload(ns)
+        assert payload["size"] == "1024x768", f"expected lowercase x, got {payload['size']!r}"
 
     def test_i2i_single_url(self):
         ns = argparse.Namespace(

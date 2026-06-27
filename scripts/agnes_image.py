@@ -251,8 +251,20 @@ def _extract_err_msg(payload: Any) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 
-def validate_size(value: str) -> None:
-    # v2.2.0: 规范化大写 X（用户友好） + 给出常见合法尺寸提示
+def validate_size(value: str) -> str:
+    """校验并规范化 size 字符串，返回规范化后的合法值
+
+    v2.2.1 修复：把规范化（大写 X → 小写 x、中文 × → 小写 x）提到返回值，
+    调用方拿到的是保证可被 API 接受的纯 ASCII 小写 x 格式。
+    不然会出现 validate_size 通过校验、但 build_payload 仍把 '1024X768'
+    或 '1024×768' 发到 API 被 422 / 'invalid_request' 拒绝的情况（实测）。
+
+    Returns:
+        规范化后的合法 size 字符串（始终是 <int>x<int> 形式）
+
+    Raises:
+        SystemExit: 输入为空或格式非法
+    """
     if not value:
         raise SystemExit("Missing --size. Use a pixel size such as 1024x768.")
     normalized = value.lower().replace("×", "x")
@@ -261,14 +273,16 @@ def validate_size(value: str) -> None:
             f"Invalid size '{value}'. Use a pixel size such as 1024x768 "
             f"(common sizes: 1024x1024, 1024x768, 768x1024, 512x512)."
         )
+    return normalized
 
 
 def build_payload(args: argparse.Namespace) -> dict:
-    validate_size(args.size)
+    # v2.2.1: validate_size 现在返回规范化值，build_payload 用规范化值（确保 API 接受）
+    size = validate_size(args.size)
     payload: dict = {
         "model": MODEL,
         "prompt": args.prompt,
-        "size": args.size,
+        "size": size,
     }
     # v2.0.0: image-to-image 时 images 必为 array（api.md 写死 array）
     if args.image_url:
@@ -446,7 +460,7 @@ def _cmd_generate_impl(args: argparse.Namespace) -> int:
             # （避免 agent 误以为可以发图给主人）
             for u in urls[len(paths):]:
                 print(f"# [warn] download failed for {u}", file=sys.stderr)
-        _print_agent_success(paths, urls, args.prompt, args.size)
+        _print_agent_success(paths, urls, args.prompt, payload["size"])
         # 下载全部失败时返非零退出码（API 成功但结果不可用）
         if urls and not paths:
             return 2
@@ -471,7 +485,7 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--image-url", action="append",
                           help="Reference image URL for image-to-image (must be a publicly accessible HTTPS URL, NOT a local file path). Repeatable for multiple references.")
     # v2.0.0: 删 --response-format（API 只支持 url，参数冗余）
-    generate.add_argument("--output-dir", default="/home/goron/文档/Openclaw/.输出/agnes-image",
+    generate.add_argument("--output-dir", default="/home/goron/文档/Openclaw/输出/agnes-free-image",
                           help="Download returned image URLs into this directory")
     generate.add_argument("--api-base", default=API_BASE)
     generate.add_argument("--dry-run", action="store_true", help="Print request JSON without calling the API")

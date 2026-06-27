@@ -1,7 +1,7 @@
 ---
 name: agnes-free-image
-version: 2.2.0
-description: 用 Agnes Image 2.1 Flash 免费生成图片（文生图 / 图生图）。触发词：免费图片、AI 出图、画一张、生成图片、image-to-image、agnes。注意：与 agnes-free-video 共享 API 配额池，并发场景用逗号分隔多 Key（AGNES_API_KEY=sk-a,sk-b）。
+version: 2.2.1
+description: 用 Agnes Image 2.1 Flash 免费生成图片（文生图 / 图生图）。触发词：免费图片、AI 出图、画一张、生成图片、image-to-image、agnes。注意：与 agnes-free-video 共享 API 配额池，并发场景用逗号分隔多 Key（AGNES_API_KEY=sk-a,sk-b）。本地图传 catbox.moe 必须走代理（HTTP_PROXY=http://127.0.0.1:7897）。
 ---
 
 # Agnes Free Image
@@ -42,6 +42,19 @@ Use this skill to generate or transform images with `agnes-image-2.1-flash`.
   2. 0x0.st（极简，不稳定）
   3. tmpfiles.org（临时，1小时过期，不适合多轮编辑）
 - agent 最佳实践：**先检查图源**——Agnes 自身产出的？看 `URL:` 字段直接复用；本地图？走 catbox（见下文 ⭐ 子节）
+
+#### ⚠️ v2.2.1 catbox.moe 网络坑（实测）
+
+- **主人环境下 catbox.moe 裸连 30 秒超时**——必须走代理
+  ```bash
+  HTTP_PROXY=http://127.0.0.1:7897 HTTPS_PROXY=http://127.0.0.1:7897 \
+    curl -F "reqtype=fileupload" -F "fileToUpload=@/path/to/local.png" \
+    https://catbox.moe/user/api.php
+  ```
+- **坑 2（更隐蔽）**：即使本地能下载 catbox 文件，**Agnes 服务器侧访问 catbox 也可能失败**，返回 `400 invalid input image`（实测）
+- **推荐顺序**（主人场景最佳实践）：
+  1. **链式 I2I 优先**：Agnes 自产图直接复用 URL，**完全跳过图床**（见下文 ⭐ 子节）
+  2. **本地图必须传 catbox**：先 `curl -I` 验证 catbox URL 公网可访问（HTTP 200），再喂给 Agnes；**返回 400 invalid input image 时**：换其他图床，或把本地图先做 T2I 拿到 Agnes URL 再链式 I2I
 
 ### ⭐ v2.1.1 优先复用 Agnes 自身产出的图（链式 I2I/I2V 加速）
 
@@ -122,7 +135,7 @@ python3 scripts/agnes_image.py generate \
   --size 1024x768
 ```
 
-> 默认保存到 `/home/goron/文档/Openclaw/.输出/agnes-image/`。指定其他路径加 `--output-dir /path/to/dir`。
+> 默认保存到 `/home/goron/文档/Openclaw/输出/agnes-free-image/`。指定其他路径加 `--output-dir /path/to/dir`。
 
 Image-to-image with a public image URL:
 
@@ -143,7 +156,7 @@ python3 scripts/agnes_image.py generate \
   --dry-run
 ```
 
-> **默认输出路径**：`/home/goron/文档/Openclaw/.输出/agnes-image/`（省略 `--output-dir` 时使用）。符合 TOOLS.md 全局约定。脚本完成后会打印 `Downloaded: <path>`，agent 直接拿这个路径发图。
+> **默认输出路径**：`/home/goron/文档/Openclaw/输出/agnes-free-image/`（省略 `--output-dir` 时使用）。符合 TOOLS.md 全局约定。脚本完成后会打印 `Downloaded: <path>`，agent 直接拿这个路径发图。
 
 ## Agent-Friendly Output（v2.1.0 新增）
 
@@ -161,7 +174,7 @@ python3 scripts/agnes_image.py generate \
 STATUS: ok
 PROMPT: A cute corgi puppy playing in a flower field
 SIZE: 1024x768
-PATH: /home/goron/文档/Openclaw/.输出/agnes-image/agnes-image-01.png
+PATH: /home/goron/文档/Openclaw/输出/agnes-free-image/agnes-image-01.png
 URL: https://files.agnes-ai.com/xxx.png
 ```
 
@@ -187,7 +200,7 @@ agent 解析方式：grep `^STATUS:` → 看 `ok` 还是 `error`；成功再 gre
 脚本完成后，agent 应该这样把图发给主人：
 
 ```text
-MEDIA:/home/goron/文档/Openclaw/.输出/agnes-image/agnes-image-01.png
+MEDIA:/home/goron/文档/Openclaw/输出/agnes-free-image/agnes-image-01.png
 ```
 
 **必须用本地路径（PATH），不要用 URL**——Agnes 返回的 URL 是临时签名链接，会过期；本地文件一直在。
@@ -273,7 +286,9 @@ python3 scripts/agnes_image.py generate \
 | `HTTP 429` | 限流（短时间内请求过多） | 等 30s 后重试，或加多 key |
 | agent 模式看不到错误 | 用 `cat`/`>` 重定向了 stderr | 直接 stdout 看 `STATUS: error` |
 | 下载后图是空白页 | URL 过期或签名失效 | 用 `MEDIA:<PATH>` 发本地，不要用 URL |
-| `--size 1024X768` 报错 | 旧版区分大小写 | **v2.2.0 起已支持大写 X 和中文 ×** |
+| `--size 1024X768` 报错 | 旧版区分大小写 | **v2.2.0 起支持输入大写 X / 中文 ×；v2.2.1 起内部规范化小写 x 发 API** |
+| `400 invalid input image` | Agnes 服务器拿不到图床 URL | **优先用链式 I2I（Agnes 自产图）；本地图走 catbox 且需要走代理** |
+| catbox 上传 30s 超时 | 主人环境 catbox 直连不通 | `HTTP_PROXY=http://127.0.0.1:7897 HTTPS_PROXY=http://127.0.0.1:7897` |
 
 ## Reliability & Error Handling (v2.0.0 → v2.0.1)
 
@@ -326,6 +341,10 @@ agnes-free-image/
 
 完整版本变更历史见 [`Changelog.md`](./Changelog.md)。最近变更：
 
+- **v2.2.1 (2026-06-27)**：全面功能测试 + size 规范化 P0 修复 + catbox 网络坑文档化
+  - P0：size 规范化真正生效（`1024X768`/`1024×768` 自动转小写 `1024x768` 发 API，避免 422）
+  - P1：文档化 catbox.moe 网络坑（必须走代理；Agnes 服务器可能拿不到 catbox URL）
+  - P1：+2 单元测试覆盖 size 规范化；已有 validate_size 测试升级为断言返回值
 - **v2.2.0 (2026-06-10)**：Agent 视角深度审查（11 项修复）
   - P0 安全：加 `.gitignore` + `.env.example` + SKILL.md 警告
   - P0 修 bug：`is_quota_error` 收紧关键词（去除"今天"等宽泛词，避免误判正常文本）
@@ -351,7 +370,7 @@ agnes-free-image/
   - **P1 加 agent-friendly 输出**：`--format {agent|json|human}`，agent 模式 stdout 输出 `STATUS/PATH/URL/PROMPT/SIZE` 结构化字段；错误也走 stdout（agent 一定看得到）
   - **O1 quota 共享写进 description**：front matter 加一句，避免 agent 匹配 skill 时漏掉
   - **O4 加 "After Generation" 节**：明确告诉 agent 用 `MEDIA:<path>` 指令把图发给主人，不要用 URL
-  - **O5 默认输出路径写进 Quick Start**：`/home/goron/文档/Openclaw/.输出/agnes-image/`
+  - **O5 默认输出路径写进 Quick Start**：`/home/goron/文档/Openclaw/输出/agnes-free-image/`
   - **备份**：`.输出/skill-backups/agnes-free-image-v2.0.1-pre_v2.1.0-20260605_1334/`
 - **v2.0.1 (2026-06-04)**：P0 完整审查修复
   - **P0-1 修 bug**：`request_json_with_retry` 在 5xx/429/网络错误路径补 `continue`，多 Key 轮换真正生效（之前 5xx 永远从 key 1 重试，sk-b/sk-c 用不上）
